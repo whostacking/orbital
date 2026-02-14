@@ -11,7 +11,7 @@ async function getContributionScores(wikiConfig) {
         });
 
         const url = `${wikiConfig.apiEndpoint}?${params.toString()}`;
-        const res = await fetch(url, { headers: { "User-Agent": "DiscordBot/Derivative" } });
+        const res = await fetch(url, { headers: { "User-Agent": "DiscordBot/Orbital" } });
         const json = await res.json();
         const html = json.parse?.text?.["*"];
 
