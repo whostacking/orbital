@@ -251,7 +251,7 @@ async function handleUserRequest(wikiConfig, rawUserMsg, messageOrInteraction) {
                 allowedMentions: { repliedUser: false },
             });
         } else {
-            await smartReply({ content: `Page "${rawPageName}" not found on ${wikiConfig.name}.`, ephemeral: true });
+            await smartReply({ content: `Page "${rawPageName}" not found on ${wikiConfig.name}.`, ephemeral: true, allowedMentions: { parse: [] }});
         }
 
     } catch (err) {
