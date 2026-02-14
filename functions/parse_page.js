@@ -77,47 +77,50 @@ function htmlToMarkdown(html, baseUrl) {
 async function findCanonicalTitle(input, wikiConfig) {
     if (!input) return null;
     const raw = String(input).trim();
-    const norm = raw.replace(/_/g, " ").replace(/\s+/g, " ").trim();
 
     try {
-        const titleTryVariants = [
-            raw,
-            norm,
-            norm.split(":").map((s, i) => i === 0 ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("_")).join(":")
-        ].filter(Boolean);
+        // direct lookup
+        const directParams = new URLSearchParams({
+            action: "query",
+            format: "json",
+            titles: raw,
+            redirects: "1",
+            indexpageids: "1"
+        });
 
-        for (const t of titleTryVariants) {
-            const params = new URLSearchParams({
-                action: "query",
-                format: "json",
-                titles: t.replace(/ /g, "_"),
-                redirects: "1",
-                indexpageids: "1"
-            });
-            const res = await fetch(`${wikiConfig.apiEndpoint}?${params.toString()}`, { headers: { "User-Agent": "DiscordBot/Orbital" } });
-            if (!res.ok) continue;
-            const json = await res.json();
+        const res = await fetch(`${wikiConfig.apiEndpoint}?${directParams.toString()}`, { 
+            headers: { "User-Agent": "DiscordBot/Orbital" } 
+        });
+        const json = await res.json();
+        const pageId = json.query?.pageids?.[0];
+        const page = json.query?.pages?.[pageId];
 
-            const pageids = json.query?.pageids || [];
-            if (pageids.length === 0) continue;
-            const page = json.query.pages[pageids[0]];
-            if (!page) continue;
-            if (page.missing !== undefined) continue;
+        // if found directly or through redirect return the canonical title
+        if (page && page.missing === undefined) {
+            return page.title; 
+        }
 
-            let canonicalTitle = page.title; 
-            const redirects = json.query?.redirects || [];
-            let fragment = null;
-            if (redirects.length) {
-                const rd = redirects.find(r => r.tofragment) || redirects[0];
-                if (rd?.tofragment) fragment = rd.tofragment;
-            }
+        // use case insensitive search
+        const searchParams = new URLSearchParams({
+            action: "query",
+            list: "search",
+            srsearch: raw,
+            srlimit: "1",
+            format: "json"
+        });
 
-            if (fragment) canonicalTitle = `${canonicalTitle}#${fragment}`;
+        const searchRes = await fetch(`${wikiConfig.apiEndpoint}?${searchParams.toString()}`, {
+            headers: { "User-Agent": "DiscordBot/Orbital" }
+        });
+        const searchJson = await searchRes.json();
+        const topResult = searchJson.query?.search?.[0];
 
-            return canonicalTitle;
+        // return the title of the top search result if it exists
+        if (topResult) {
+            return topResult.title;
         }
     } catch (err) {
-        console.warn("findCanonicalTitle API lookup failed:", err?.message || err);
+        console.warn("findCanonicalTitle lookup failed:", err?.message || err);
     }
 
     return null;
