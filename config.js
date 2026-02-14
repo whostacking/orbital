@@ -44,13 +44,5 @@ module.exports = {
     BOT_NAME,
     WIKIS,
     CATEGORY_WIKI_MAP,
-    STATUS_OPTIONS,
-    // Kept for compatibility with existing code until refactored
-    BOT_SETTINGS: {
-        IGNORED_CHANNELS: [],
-        TRIGGER_KEYWORDS: [],
-        RESPONSE_CHANCE: 0,
-        MIN_FOLLOWUP_DELAY: 0,
-        MAX_FOLLOWUP_DELAY: 0
-    }
+    STATUS_OPTIONS
 };

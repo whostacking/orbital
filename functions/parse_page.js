@@ -83,6 +83,7 @@ async function findCanonicalTitle(input, wikiConfig) {
         const titleTryVariants = [
             raw,
             norm,
+            norm.split(":").map((s, i) => i === 0 ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("_")).join(":")
         ].filter(Boolean);
 
         for (const t of titleTryVariants) {
