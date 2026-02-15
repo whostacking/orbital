@@ -37,42 +37,6 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
-// -------------------- UTILITIES --------------------
-const DISCORD_MAX_LENGTH = 2000;
-
-function splitMessage(text, maxLength = DISCORD_MAX_LENGTH) {
-    const messages = [];
-    let currentText = text;
-
-    while (currentText.length > 0) {
-        if (currentText.length <= maxLength) {
-            messages.push(currentText);
-            break;
-        }
-
-        const searchLength = maxLength - 10;
-        let splitIndex = currentText.lastIndexOf('\n', searchLength);
-        if (splitIndex === -1) splitIndex = currentText.lastIndexOf(' ', searchLength);
-        if (splitIndex === -1) splitIndex = searchLength;
-
-        let segment = currentText.slice(0, splitIndex).trim();
-        let remaining = currentText.slice(splitIndex).trim();
-
-        const backtickMatches = segment.match(/```/g);
-        const isInsideCodeBlock = backtickMatches && (backtickMatches.length % 2 !== 0);
-
-        if (isInsideCodeBlock) {
-            segment += "\n```";
-            remaining = "```\n" + remaining;
-        }
-
-        messages.push(segment);
-        currentText = remaining;
-    }
-
-    return messages;
-}
-
 // --- NEW: UNIFIED COMPONENT BUILDER ---
 function buildPageEmbed(title, content, imageUrl, wikiConfig, gallery = null) {
     const container = new ContainerBuilder();
@@ -221,7 +185,7 @@ client.once("ready", async () => {
                 ]
             }
         ]);
-        console.log("✅ Registered slash commands.");
+        console.log("Registered slash commands.");
     } catch (err) {
         console.error("Failed to register commands:", err);
     }
