@@ -7,7 +7,7 @@ function htmlToMarkdown(html, baseUrl) {
     const $ = cheerio.load(html);
 
     // Remove unwanted elements
-    $('style, script, .thumb, figure, table, .mw-editsection, sup.reference, .noprint, .nomobile, .error, input, .ext-floatingui-content, .infobox, .portable-infobox, table[class*="infobox"]').remove();
+    $('style, script, .thumb, figure, table, .mw-editsection, sup.reference, .noprint, .nomobile, .error, input, .ext-floatingui-content, .infobox, .portable-infobox, table[class*="infobox"], ol.references, .mw-collapsed, .template-navplate').remove();
 
     function convertNode(node) {
         if (node.type === 'text') {
