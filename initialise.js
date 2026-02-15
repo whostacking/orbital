@@ -38,50 +38,21 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 // -------------------- UTILITIES --------------------
-const DISCORD_MAX_LENGTH = 2000;
+const PREFIX_WIKI_MAP = Object.keys(WIKIS).reduce((acc, key) => {
+    const prefix = WIKIS[key].prefix;
+    if (prefix) acc[prefix] = key;
+    return acc;
+}, {});
 
-const PREFIX_WIKI_MAP = {
-    "sb64": "super-blox-64",
-    "sr": "superstar-racers",
-    "abj": "a-blocks-journey"
-};
+// joins all prefixes into a string like "a|b|c"
+const prefixPattern = Object.values(WIKIS).map(w => w.prefix).join('|');
 
-const syntaxRegex = /\{\{(?:(sr|sb64|abj):)?([^{}|]+)(?:\|[^{}]*)?\}\}|\[\[(?:(sr|sb64|abj):)?([^[\]|]+)(?:\|[^[\]]*)?\]\]/;
+const syntaxRegex = new RegExp(
+    `\\{\\{(?:(${prefixPattern}):)?([^{}|]+)(?:\\|[^{}]*)?\\}\\}|` +
+    `\\[\\[(?:(${prefixPattern}):)?([^[\\s\\]|]+)(?:\\|[^[\\]]*)?\\]\\]`
+);
 
 const responseMap = new Map();
-
-function splitMessage(text, maxLength = DISCORD_MAX_LENGTH) {
-    const messages = [];
-    let currentText = text;
-
-    while (currentText.length > 0) {
-        if (currentText.length <= maxLength) {
-            messages.push(currentText);
-            break;
-        }
-
-        const searchLength = maxLength - 10;
-        let splitIndex = currentText.lastIndexOf('\n', searchLength);
-        if (splitIndex === -1) splitIndex = currentText.lastIndexOf(' ', searchLength);
-        if (splitIndex === -1) splitIndex = searchLength;
-
-        let segment = currentText.slice(0, splitIndex).trim();
-        let remaining = currentText.slice(splitIndex).trim();
-
-        const backtickMatches = segment.match(/```/g);
-        const isInsideCodeBlock = backtickMatches && (backtickMatches.length % 2 !== 0);
-
-        if (isInsideCodeBlock) {
-            segment += "\n```";
-            remaining = "```\n" + remaining;
-        }
-
-        messages.push(segment);
-        currentText = remaining;
-    }
-
-    return messages;
-}
 
 // --- NEW: UNIFIED COMPONENT BUILDER ---
 function buildPageEmbed(title, content, imageUrl, wikiConfig, gallery = null) {
