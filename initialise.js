@@ -379,6 +379,15 @@ client.on("messageCreate", async (message) => {
 });
 
 client.on("messageUpdate", async (oldMessage, newMessage) => {
+    // Ensure the message is fully resolved
+    if (newMessage.partial) {
+        try {
+            newMessage = await newMessage.fetch();
+        } catch (err) {
+            return; // Message was deleted or inaccessible
+        }
+    }
+    
     if (newMessage.author.bot) return;
     if (!responseMap.has(newMessage.id)) return;
 
@@ -391,7 +400,10 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
     try {
         const botMessage = await newMessage.channel.messages.fetch(botMessageId);
         if (botMessage) {
-            await handleUserRequest(wikiConfig, rawPageName, newMessage, botMessage);
+            const updatedResponse = await handleUserRequest(wikiConfig, rawPageName, newMessage, botMessage);
+            if (updatedResponse && updatedResponse.id !== botMessageId) {
+                responseMap.set(newMessage.id, updatedResponse.id);
+            }
         }
     } catch (err) {
         console.warn("Failed to fetch bot message for update:", err.message);
@@ -410,7 +422,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
     }
 
     const emoji = reaction.emoji.name;
-    if (emoji === "🗑️" || emoji === "wastebucket") {
+    if (emoji === "🗑️" || emoji === "🗑") {
         const message = reaction.message;
         if (message.author.id !== client.user.id) return;
 
@@ -435,6 +447,13 @@ client.on("messageReactionAdd", async (reaction, user) => {
         if (user.id === originalAuthorId) {
             try {
                 await message.delete();
+                // Clean up the responseMap entry
+                for (const [userMsgId, botMsgId] of responseMap.entries()) {
+                    if (botMsgId === message.id) {
+                        responseMap.delete(userMsgId);
+                        break;
+                    }
+                }
             } catch (err) {
                 console.warn("Failed to delete message on reaction:", err.message);
             }
