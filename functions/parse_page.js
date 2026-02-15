@@ -45,13 +45,7 @@ function htmlToMarkdown(html, baseUrl) {
                 return '\n';
             case 'p':
             case 'div':
-            case 'li': {
-                const isOrdered = node.parent && node.parent.name === 'ol';
-                const prefix = isOrdered
-                    ? `${Array.from(node.parent.children).filter(c => c.name === 'li').indexOf(node) + 1}. `
-                    : '* ';
-                return `${prefix}${childrenContent.trim()}\n`;
-            }
+            case 'li':
             case 'h1':
             case 'h2':
                 return childrenContent.trim() ? `## ${childrenContent.trim()}\n` : '';
