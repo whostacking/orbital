@@ -1,5 +1,6 @@
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
+const crypto = require('crypto');
 const {
     ContainerBuilder,
     SectionBuilder,
@@ -8,56 +9,68 @@ const {
 
 const TODO_FILE = path.join(__dirname, '../todos.json');
 
-function loadTodos() {
-    if (!fs.existsSync(TODO_FILE)) return {};
+// Simple async mutex to avoid races during load-modify-save
+let fileLock = Promise.resolve();
+
+async function withLock(fn) {
+    const result = fileLock.then(async () => {
+        return await fn();
+    });
+    fileLock = result.catch(() => {}); // Ensure the chain continues even on error
+    return result;
+}
+
+async function loadTodos() {
     try {
-        const data = fs.readFileSync(TODO_FILE, 'utf8');
+        const data = await fs.readFile(TODO_FILE, 'utf8');
         return JSON.parse(data);
     } catch (e) {
+        if (e.code === 'ENOENT') return {};
         console.error("Error loading todos:", e);
         return {};
     }
 }
 
-function saveTodos(todos) {
+async function saveTodos(todos) {
     try {
-        fs.writeFileSync(TODO_FILE, JSON.stringify(todos, null, 4));
+        await fs.writeFile(TODO_FILE, JSON.stringify(todos, null, 4));
     } catch (e) {
         console.error("Error saving todos:", e);
     }
 }
 
-function addTodoTask(categoryId, name, description) {
-    const todos = loadTodos();
-    if (!todos[categoryId]) todos[categoryId] = [];
+async function addTodoTask(categoryId, name, description) {
+    return await withLock(async () => {
+        const todos = await loadTodos();
+        if (!todos[categoryId]) todos[categoryId] = [];
 
-    const newTask = {
-        id: Date.now().toString(),
-        name,
-        description: description || "",
-        completed: false
-    };
+        const newTask = {
+            id: crypto.randomUUID(),
+            name,
+            description: description || "",
+            completed: false
+        };
 
-    todos[categoryId].push(newTask);
-    saveTodos(todos);
-    return newTask;
+        todos[categoryId].push(newTask);
+        await saveTodos(todos);
+        return newTask;
+    });
 }
 
-function getTodoList(categoryId) {
-    const todos = loadTodos();
+async function getTodoList(categoryId) {
+    const todos = await loadTodos();
     return todos[categoryId] || [];
 }
 
-function buildTodoListContainer(categoryId, wikiConfig) {
-    const tasks = getTodoList(categoryId).filter(t => !t.completed);
-
-    if (tasks.length === 0) return null;
+function buildTodoListContainer(categoryId, tasks, wikiConfig) {
+    const activeTasks = tasks.filter(t => !t.completed);
+    if (activeTasks.length === 0) return null;
 
     const container = new ContainerBuilder();
     const section = new SectionBuilder();
 
     let content = `## Todo List for ${wikiConfig.name}\n`;
-    tasks.forEach((task, index) => {
+    activeTasks.forEach((task, index) => {
         content += `${index + 1}. **${task.name}**${task.description ? ` - ${task.description}` : ""}\n`;
     });
 
@@ -71,42 +84,39 @@ function buildTodoListContainer(categoryId, wikiConfig) {
     return container;
 }
 
-function updateTasks(categoryId, completedTaskIds) {
-    const todos = loadTodos();
-    if (!todos[categoryId]) return [];
+async function updateTasks(categoryId, completedTaskIds) {
+    return await withLock(async () => {
+        const todos = await loadTodos();
+        if (!todos[categoryId]) return [];
 
-    todos[categoryId] = todos[categoryId].map(task => {
-        if (completedTaskIds.includes(task.id)) {
-            return { ...task, completed: true };
-        }
-        return task;
+        todos[categoryId] = todos[categoryId].map(task => {
+            if (completedTaskIds.includes(task.id)) {
+                return { ...task, completed: true };
+            }
+            return task;
+        });
+
+        await saveTodos(todos);
+        return todos[categoryId].filter(t => !t.completed);
     });
-
-    // Optional: Filter out completed tasks from the storage to keep it clean?
-    // The prompt says "cross off anything they've done" and "remaining tasks".
-    // I'll keep them as completed: true for now, but maybe remove them if they want only remaining.
-    // Let's just keep them for history but filter them out in displays.
-
-    saveTodos(todos);
-    return todos[categoryId].filter(t => !t.completed);
 }
 
-function buildTickModal(categoryId) {
-    const tasks = getTodoList(categoryId).filter(t => !t.completed);
-    if (tasks.length === 0) return null;
+function buildTickModal(categoryId, tasks) {
+    const activeTasks = tasks.filter(t => !t.completed);
+    if (activeTasks.length === 0) return null;
 
-    // We use a raw object for the modal to ensure compatibility with CheckboxGroup (type 11)
+    // Type 18: LABEL Container, Type 22: CHECKBOX_GROUP
     return {
         title: "Tick off completed tasks",
         custom_id: `todo_tick_modal_${categoryId}`,
         components: [
             {
-                type: 1, // ActionRow
+                type: 18,
                 components: [
                     {
-                        type: 11, // CheckboxGroup
+                        type: 22,
                         custom_id: "completed_tasks",
-                        options: tasks.slice(0, 10).map(task => ({
+                        options: activeTasks.slice(0, 10).map(task => ({
                             label: task.name.slice(0, 100),
                             value: task.id,
                             description: task.description ? task.description.slice(0, 100) : undefined

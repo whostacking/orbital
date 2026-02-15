@@ -487,16 +487,20 @@ client.on("interactionCreate", async (interaction) => {
             }
             const categoryId = interaction.customId.replace('todo_tick_modal_', '');
 
-            // Extract selected values from CheckboxGroup
-            // CheckboxGroup values are returned in interaction.fields.getField(custom_id).value as an array of strings in modern Discord.js/API
-            // Or via getSelectMenuValues. Given it is type 11, it behaves like a select menu.
+            // Extract selected values from CheckboxGroup (type 22)
             let completedTaskIds = [];
             try {
-                completedTaskIds = interaction.fields.getSelectMenuValues('completed_tasks');
+                const field = interaction.fields.getField('completed_tasks');
+                completedTaskIds = Array.isArray(field.value) ? field.value : [field.value];
             } catch (err) {
-                // Fallback for older/different implementations
-                const component = interaction.components[0]?.components.find(c => c.customId === 'completed_tasks');
-                completedTaskIds = component?.values || [];
+                // Fallback: search interaction.components for the component
+                for (const row of interaction.components) {
+                    const component = row.components.find(c => c.customId === 'completed_tasks');
+                    if (component) {
+                        completedTaskIds = component.values || (component.value ? [component.value] : []);
+                        break;
+                    }
+                }
             }
 
             if (completedTaskIds.length === 0) {
@@ -504,7 +508,7 @@ client.on("interactionCreate", async (interaction) => {
                 return;
             }
 
-            const remainingTasks = updateTasks(categoryId, completedTaskIds);
+            const remainingTasks = await updateTasks(categoryId, completedTaskIds);
 
             // Send update to the channel
             const updateChannelId = TODO_UPDATE_CHANNELS[categoryId] || interaction.channelId;
@@ -513,18 +517,20 @@ client.on("interactionCreate", async (interaction) => {
                     const channel = await interaction.client.channels.fetch(updateChannelId);
                     if (channel) {
                         const wikiConfig = WIKIS[CATEGORY_WIKI_MAP[categoryId]];
-                        const container = buildTodoListContainer(categoryId, wikiConfig);
+                        const container = buildTodoListContainer(categoryId, remainingTasks, wikiConfig);
 
                         let messageContent = `Todo list updated! Remaining tasks:`;
                         if (!container) {
                             messageContent = `Todo list updated! All tasks completed! 🎉`;
                         }
 
-                        await channel.send({
-                            content: messageContent,
-                            components: container ? [container] : [],
-                            flags: container ? MessageFlags.IsComponentsV2 : undefined
-                        });
+                        const payload = { content: messageContent };
+                        if (container) {
+                            payload.components = [container];
+                            payload.flags = MessageFlags.IsComponentsV2;
+                        }
+
+                        await channel.send(payload);
                     }
                 } catch (err) {
                     console.error("Failed to send todo update:", err);
@@ -555,7 +561,7 @@ client.on("interactionCreate", async (interaction) => {
                 return;
             }
 
-            const task = addTodoTask(categoryId, name, description);
+            const task = await addTodoTask(categoryId, name, description);
             await interaction.reply({ content: `Added task: **${task.name}**`, ephemeral: true });
 
             // Send update to the channel
@@ -565,12 +571,15 @@ client.on("interactionCreate", async (interaction) => {
                     const channel = await interaction.client.channels.fetch(updateChannelId);
                     if (channel) {
                         const wikiConfig = WIKIS[CATEGORY_WIKI_MAP[categoryId]];
-                        const container = buildTodoListContainer(categoryId, wikiConfig);
-                        await channel.send({
-                            content: `New task added! Current todo list:`,
-                            components: container ? [container] : [],
-                            flags: MessageFlags.IsComponentsV2
-                        });
+                        const tasks = await getTodoList(categoryId);
+                        const container = buildTodoListContainer(categoryId, tasks, wikiConfig);
+
+                        const payload = { content: `New task added! Current todo list:` };
+                        if (container) {
+                            payload.components = [container];
+                            payload.flags = MessageFlags.IsComponentsV2;
+                        }
+                        await channel.send(payload);
                     }
                 } catch (err) {
                     console.error("Failed to send todo update:", err);
@@ -579,7 +588,8 @@ client.on("interactionCreate", async (interaction) => {
         } else if (subcommand === 'list') {
             const categoryId = interaction.options.getString('category');
             const wikiConfig = WIKIS[CATEGORY_WIKI_MAP[categoryId]];
-            const container = buildTodoListContainer(categoryId, wikiConfig);
+            const tasks = await getTodoList(categoryId);
+            const container = buildTodoListContainer(categoryId, tasks, wikiConfig);
 
             if (!container) {
                 await interaction.reply({ content: 'No tasks found for this category.', ephemeral: true });
@@ -591,7 +601,8 @@ client.on("interactionCreate", async (interaction) => {
             }
         } else if (subcommand === 'tick') {
             const categoryId = interaction.options.getString('category');
-            const modal = buildTickModal(categoryId);
+            const tasks = await getTodoList(categoryId);
+            const modal = buildTickModal(categoryId, tasks);
 
             if (!modal) {
                 await interaction.reply({ content: 'No tasks to tick off for this category.', ephemeral: true });
