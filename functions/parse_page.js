@@ -137,9 +137,8 @@ async function findCanonicalTitle(input, wikiConfig) {
         const searchParams = new URLSearchParams({
             action: "query",
             list: "search",
-            srsearch: raw,
+            srsearch: `intitle:${raw}`,
             srlimit: "1",
-            // srwhat: "title",
             format: "json"
         });
 
