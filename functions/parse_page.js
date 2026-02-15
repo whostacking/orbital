@@ -7,7 +7,7 @@ function htmlToMarkdown(html, baseUrl) {
     const $ = cheerio.load(html);
 
     // Remove unwanted elements
-    $('style, script, .thumb, figure, table, .mw-editsection, sup.reference, .noprint, .nomobile, .error, input, .ext-floatingui-content, .infobox, .portable-infobox, table[class*="infobox"]').remove();
+    $('style, script, .thumb, figure, table, .mw-editsection, sup.reference, .noprint, .nomobile, .error, input, .ext-floatingui-content, .infobox, .portable-infobox, table[class*="infobox"], ol.references, .mw-collapsed, .template-navplate').remove();
 
     function convertNode(node) {
         if (node.type === 'text') {
@@ -186,7 +186,12 @@ async function getSectionIndex(pageTitle, sectionName, wikiConfig) {
             s => s.line.replace(/<[^>]*>?/gm, "").toLowerCase() === sectionName.toLowerCase()
         );
 
-        return match?.index || null;
+        if (!match) return null;
+
+        return {
+            index: match.index,
+            line: match.line.replace(/<[^>]*>?/gm, "")
+        };
     } catch (err) {
         console.error(`Failed to fetch section index for "${sectionName}" in "${pageTitle}":`, err.message);
         return null;
@@ -194,8 +199,8 @@ async function getSectionIndex(pageTitle, sectionName, wikiConfig) {
 }
 
 async function getSectionContent(pageTitle, sectionName, wikiConfig) {
-    const sectionIndex = await getSectionIndex(pageTitle, sectionName, wikiConfig);
-    if (!sectionIndex) {
+    const sectionInfo = await getSectionIndex(pageTitle, sectionName, wikiConfig);
+    if (!sectionInfo) {
         console.warn(`Section "${sectionName}" not found in "${pageTitle}"`);
         return null;
     }
@@ -205,7 +210,7 @@ async function getSectionContent(pageTitle, sectionName, wikiConfig) {
         format: "json",
         prop: "text",
         page: pageTitle,
-        section: sectionIndex
+        section: sectionInfo.index
     });
 
     try {
@@ -216,7 +221,34 @@ async function getSectionContent(pageTitle, sectionName, wikiConfig) {
 
         const html = json.parse?.text?.["*"];
         if (!html) return null;
-        return htmlToMarkdown(html, wikiConfig.baseUrl);
+
+        const $ = cheerio.load(html);
+        const galleryItems = [];
+
+        $('ul.gallery .gallerybox').each((i, el) => {
+            const $el = $(el);
+            const img = $el.find('img').first();
+            let src = img.attr('src');
+
+            if (src) {
+                if (src.startsWith('//')) src = 'https:' + src;
+                else if (src.startsWith('/')) src = new URL(src, wikiConfig.baseUrl).href;
+
+                const caption = $el.find('.gallerytext').text().trim();
+                galleryItems.push({ url: src, caption });
+            }
+        });
+
+        // Remove gallery from HTML to avoid duplicating captions in content
+        if (galleryItems.length > 0) {
+            $('ul.gallery').remove();
+        }
+        
+        return {
+            content: htmlToMarkdown($.html(), wikiConfig.baseUrl),
+            displayTitle: sectionInfo.line,
+            gallery: galleryItems.length > 0 ? galleryItems : null
+        };
     } catch (err) {
         console.error(`Failed to fetch section content for "${pageTitle}#${sectionName}":`, err.message);
         return null;
@@ -332,12 +364,14 @@ async function parseTemplates(text, wikiConfig) {
             wikiText = null;
         }
 
-        if (wikiText) {
+        const actualText = (wikiText && typeof wikiText === 'object') ? wikiText.content : wikiText;
+
+        if (actualText) {
             const parts = pageOnly.split(':').map(seg => encodeURIComponent(seg.replace(/ /g, "_")));
             const anchor = fragment ? `#${encodeURIComponent(fragment.replace(/ /g, "_"))}` : '';
             const link = `<${wikiConfig.articlePath}${parts.join(':')}${anchor}>`;
 
-            replacement = `**${templateName}** → ${wikiText.slice(0,1000)}\n${link}`;
+            replacement = `**${templateName}** → ${actualText.slice(0,1000)}\n${link}`;
         } else {
             replacement = "I don't know.";
         }
