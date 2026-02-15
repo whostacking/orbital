@@ -554,7 +554,7 @@ client.on("interactionCreate", async (interaction) => {
         if (subcommand === 'add') {
             const name = interaction.options.getString('name');
             const description = interaction.options.getString('description');
-            const categoryId = interaction.channel.parentId;
+            const categoryId = interaction.channel?.parentId;
 
             if (!CATEGORY_WIKI_MAP[categoryId]) {
                 await interaction.reply({ content: 'This channel is not in a recognized wiki category.', ephemeral: true });
