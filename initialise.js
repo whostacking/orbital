@@ -17,6 +17,7 @@ const {
     ContainerBuilder,
     SectionBuilder,
     TextDisplayBuilder,
+    ThumbnailBuilder,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     ButtonBuilder,
@@ -86,23 +87,20 @@ function buildPageEmbed(title, content, imageUrl, wikiConfig, gallery = null) {
         if (hasContent) {
             mainSection.addTextDisplayComponents([new TextDisplayBuilder().setContent(content)]);
 
-            // Thumbnail (only when no gallery)
-            if (!hasGallery) {
-                const fallbackImage = "https://upload.wikimedia.org/wikipedia/commons/8/89/HD_transparent_picture.png";
-                const finalImageUrl = (typeof imageUrl === "string" && imageUrl.trim() !== "") ? imageUrl : fallbackImage;
+            // SectionBuilder requires an accessory (Thumbnail or Button) in this version of discord.js.
+            // We use the provided imageUrl, or a fallback transparent image.
+            const fallbackImage = "https://upload.wikimedia.org/wikipedia/commons/8/89/HD_transparent_picture.png";
 
-                try {
-                    mainSection.setThumbnailAccessory(thumbnail => thumbnail.setURL(finalImageUrl));
-                } catch (err) {
-                    console.warn("Failed to set thumbnail:", err.message);
-                }
-            }
-        
+            // If hasGallery is true, we use the fallback to avoid duplicate images (thumbnail + gallery)
+            const finalImageUrl = (!hasGallery && typeof imageUrl === "string" && imageUrl.trim() !== "") ? imageUrl : fallbackImage;
 
-            if (mainSection.components && mainSection.components.length > 0) {
-                mainSection.components = mainSection.components.filter(c => c !== undefined);
-                container.addSectionComponents(mainSection);
+            try {
+                mainSection.setThumbnailAccessory(thumbnail => thumbnail.setURL(finalImageUrl));
+            } catch (err) {
+                console.warn("Failed to set thumbnail accessory:", err.message);
             }
+
+            container.addSectionComponents(mainSection);
         }
 
         // 2. Media Gallery (top-level container component)
