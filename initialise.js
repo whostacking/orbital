@@ -85,37 +85,37 @@ function buildPageEmbed(title, content, imageUrl, wikiConfig, gallery = null) {
         // 1. Text Content
         if (hasContent) {
             mainSection.addTextDisplayComponents([new TextDisplayBuilder().setContent(content)]);
+
+            // Thumbnail (only when no gallery)
+            if (!hasGallery) {
+                const fallbackImage = "https://upload.wikimedia.org/wikipedia/commons/8/89/HD_transparent_picture.png";
+                const finalImageUrl = (typeof imageUrl === "string" && imageUrl.trim() !== "") ? imageUrl : fallbackImage;
+
+                try {
+                    mainSection.setThumbnailAccessory(thumbnail => thumbnail.setURL(finalImageUrl));
+                } catch (err) {
+                    console.warn("Failed to set thumbnail:", err.message);
+                }
+            }
+        
+
+            if (mainSection.components && mainSection.components.length > 0) {
+                mainSection.components = mainSection.components.filter(c => c !== undefined);
+                container.addSectionComponents(mainSection);
+            }
         }
 
-        // 2. Media (Gallery or Thumbnail)
+        // 2. Media Gallery (top-level container component)
         if (hasGallery) {
             const mediaGallery = new MediaGalleryBuilder();
-            // Discord limits to 10 items
             gallery.slice(0, 10).forEach(item => {
-                const galleryItem = new MediaGalleryItemBuilder()
-                    .setURL(item.url);
+                const galleryItem = new MediaGalleryItemBuilder().setURL(item.url);
                 if (item.caption) {
                     galleryItem.setDescription(item.caption.slice(0, 1000));
                 }
                 mediaGallery.addItems(galleryItem);
             });
-            mainSection.addComponents(mediaGallery);
-        } else {
-            const fallbackImage = "https://upload.wikimedia.org/wikipedia/commons/8/89/HD_transparent_picture.png";
-            const finalImageUrl = (typeof imageUrl === "string" && imageUrl.trim() !== "") ? imageUrl : fallbackImage;
-
-            try {
-                mainSection.setThumbnailAccessory(thumbnail => thumbnail.setURL(finalImageUrl));
-            } catch (err) {
-                console.warn("Failed to set thumbnail:", err.message);
-            }
-        }
-
-        if (mainSection.components && mainSection.components.length > 0) {
-            mainSection.components = mainSection.components.filter(c => c !== undefined);
-            if (mainSection.components.length > 0) {
-                container.addSectionComponents(mainSection);
-            }
+            container.addMediaGalleryComponents(mediaGallery);
         }
     }
     
