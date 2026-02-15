@@ -5,6 +5,7 @@ const {
     getWikiContent, 
     getSectionContent, 
     getLeadSection, 
+    getFullSizeImageUrl
 } = require("./functions/parse_page.js");
 
 const { getContributionScores } = require("./functions/contribscores.js");
@@ -78,13 +79,18 @@ function buildPageEmbed(title, content, imageUrl, wikiConfig, gallery = null) {
     
     const hasContent = content && content !== "No content available.";
     const hasGallery = gallery && gallery.length > 0;
-    const showEmbed = hasContent || hasGallery;
+
+    // Suppression logic: if content is ONLY the "## Gallery" header and we have a media gallery, don't show the text section.
+    const isOnlyGalleryHeader = hasContent && content.trim() === "## Gallery";
+    const shouldShowTextSection = hasContent && !(isOnlyGalleryHeader && hasGallery);
+
+    const showEmbed = shouldShowTextSection || hasGallery;
 
     if (showEmbed) {
         const mainSection = new SectionBuilder();
 
         // 1. Text Content
-        if (hasContent) {
+        if (shouldShowTextSection) {
             mainSection.addTextDisplayComponents([new TextDisplayBuilder().setContent(content)]);
 
             // SectionBuilder requires an accessory (Thumbnail or Button) in this version of discord.js.
@@ -282,7 +288,8 @@ async function handleUserRequest(wikiConfig, rawUserMsg, messageOrInteraction) {
                     const imageJson = await imageRes.json();
                     const pages = imageJson.query?.pages;
                     const first = pages ? Object.values(pages)[0] : null;
-                    return first?.thumbnail?.source || null;
+                    const src = first?.thumbnail?.source || null;
+                    return getFullSizeImageUrl(src);
                 } catch (err) {
                     return null;
                 }

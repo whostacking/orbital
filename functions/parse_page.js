@@ -2,6 +2,31 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 const cheerio = require('cheerio');
 
 // --- UTILITIES ---
+function getFullSizeImageUrl(url) {
+    if (!url || !url.includes('/thumb/')) return url;
+    try {
+        const urlObj = new URL(url);
+        if (urlObj.pathname.includes('/thumb/')) {
+            // Remove /thumb/ from pathname
+            urlObj.pathname = urlObj.pathname.replace(/\/thumb\//, '/');
+            // Remove the last segment (thumbnail size part)
+            const pathParts = urlObj.pathname.split('/');
+            pathParts.pop();
+            urlObj.pathname = pathParts.join('/');
+            return urlObj.href;
+        }
+    } catch (e) {
+        // Fallback for weird URLs
+        let newUrl = url.replace(/\/thumb\//, '/');
+        const lastSlash = newUrl.lastIndexOf('/');
+        if (lastSlash !== -1) {
+            newUrl = newUrl.substring(0, lastSlash);
+        }
+        return newUrl;
+    }
+    return url;
+}
+
 function htmlToMarkdown(html, baseUrl) {
     if (!html) return "";
     const $ = cheerio.load(html);
@@ -234,6 +259,9 @@ async function getSectionContent(pageTitle, sectionName, wikiConfig) {
                 if (src.startsWith('//')) src = 'https:' + src;
                 else if (src.startsWith('/')) src = new URL(src, wikiConfig.baseUrl).href;
 
+                // Transform to full-size URL
+                src = getFullSizeImageUrl(src);
+
                 const caption = $el.find('.gallerytext').text().trim();
                 galleryItems.push({ url: src, caption });
             }
@@ -394,5 +422,6 @@ module.exports = {
     getSectionContent, 
     getLeadSection, 
     parseWikiLinks, 
-    parseTemplates
+    parseTemplates,
+    getFullSizeImageUrl
 };
