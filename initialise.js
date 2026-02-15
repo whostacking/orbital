@@ -46,7 +46,7 @@ const PREFIX_WIKI_MAP = {
     "abj": "a-blocks-journey"
 };
 
-const syntaxRegex = /\{\{(?:(sr|sb64|abj):)?([^{}|]+)(?:\|[^{}]*)?\}\}|\[\[(?:(sr|sb64|abj):)?([^[\]|]+)(?:\|[^[\]]*)?\]\]|;;([^{}|]+);;|&&([^{}|]+)&&|!!([^{}|]+)!!/;
+const syntaxRegex = /\{\{(?:(sr|sb64|abj):)?([^{}|]+)(?:\|[^{}]*)?\}\}|\[\[(?:(sr|sb64|abj):)?([^[\]|]+)(?:\|[^[\]]*)?\]\]/;
 
 const responseMap = new Map();
 
@@ -344,27 +344,15 @@ function getWikiAndPage(messageContent, channelParentId) {
     const match = messageContent.match(syntaxRegex);
     if (!match) return null;
 
-    let prefix = match[1] || match[3];
-    let rawPageName;
-    let wikiConfig = null;
+    const prefix = match[1] || match[3];
+    const rawPageName = (match[2] || match[4]).trim();
 
-    if (match[5]) { // ;;
-        rawPageName = match[5].trim();
-        wikiConfig = WIKIS["super-blox-64"];
-    } else if (match[6]) { // &&
-        rawPageName = match[6].trim();
-        wikiConfig = WIKIS["superstar-racers"];
-    } else if (match[7]) { // !!
-        rawPageName = match[7].trim();
-        wikiConfig = WIKIS["a-blocks-journey"];
+    let wikiConfig = null;
+    if (prefix) {
+        wikiConfig = WIKIS[PREFIX_WIKI_MAP[prefix]];
     } else {
-        rawPageName = (match[2] || match[4]).trim();
-        if (prefix) {
-            wikiConfig = WIKIS[PREFIX_WIKI_MAP[prefix]];
-        } else {
-            const wikiKey = CATEGORY_WIKI_MAP[channelParentId] || "superstar-racers";
-            wikiConfig = WIKIS[wikiKey];
-        }
+        const wikiKey = CATEGORY_WIKI_MAP[channelParentId] || "superstar-racers";
+        wikiConfig = WIKIS[wikiKey];
     }
 
     return { wikiConfig, rawPageName };
