@@ -9,6 +9,12 @@ const {
 } = require("./functions/parse_page.js");
 
 const { getContributionScores } = require("./functions/contribscores.js");
+const {
+    addTodoTask,
+    buildTodoListContainer,
+    updateTasks,
+    buildTickModal
+} = require("./functions/todolist.js");
 
 const {
     Client,
@@ -30,7 +36,7 @@ const {
     ApplicationCommandType
 } = require("discord.js");
 
-const { BOT_NAME, WIKIS, CATEGORY_WIKI_MAP, STATUS_OPTIONS } = require("./config.js");
+const { BOT_NAME, WIKIS, CATEGORY_WIKI_MAP, TODO_UPDATE_CHANNELS, STATUS_OPTIONS } = require("./config.js");
 
 // node-fetch wrapper 
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
@@ -200,6 +206,65 @@ client.once("ready", async () => {
                             name: wiki.name,
                             value: key
                         }))
+                    }
+                ]
+            },
+            {
+                name: 'todo',
+                description: 'Manage the todo list',
+                options: [
+                    {
+                        name: 'add',
+                        description: 'Add a new todo task',
+                        type: 1, // SUB_COMMAND
+                        options: [
+                            {
+                                name: 'name',
+                                description: 'The name of the task',
+                                type: 3, // STRING
+                                required: true
+                            },
+                            {
+                                name: 'description',
+                                description: 'The description of the task',
+                                type: 3, // STRING
+                                required: false
+                            }
+                        ]
+                    },
+                    {
+                        name: 'list',
+                        description: 'List all todo tasks for a category',
+                        type: 1, // SUB_COMMAND
+                        options: [
+                            {
+                                name: 'category',
+                                description: 'The category to show tasks for',
+                                type: 3, // STRING
+                                required: true,
+                                choices: Object.entries(CATEGORY_WIKI_MAP).map(([id, wikiKey]) => ({
+                                    name: WIKIS[wikiKey].name,
+                                    value: id
+                                }))
+                            }
+                        ]
+                    },
+                    {
+                        name: 'tick',
+                        description: 'Tick off completed tasks',
+                        type: 1, // SUB_COMMAND
+                        options: [
+                            {
+                                name: 'category',
+                                description: 'The category to tick off tasks for',
+                                type: 3, // STRING
+                                required: true,
+                                choices: Object.entries(CATEGORY_WIKI_MAP).map(([id, wikiKey]) => ({
+                                    name: WIKIS[wikiKey].name,
+                                    value: id
+                                }))
+                            }
+                        ]
                     }
                 ]
             }
@@ -414,7 +479,119 @@ client.on("messageReactionAdd", async (reaction, user) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('todo_tick_modal_')) {
+            const categoryId = interaction.customId.replace('todo_tick_modal_', '');
+
+            // Extract selected values from CheckboxGroup
+            // CheckboxGroup values are returned in interaction.fields.getField(custom_id).value as an array of strings in modern Discord.js/API
+            // Or via getSelectMenuValues. Given it is type 11, it behaves like a select menu.
+            let completedTaskIds = [];
+            try {
+                completedTaskIds = interaction.fields.getSelectMenuValues('completed_tasks');
+            } catch (err) {
+                // Fallback for older/different implementations
+                const component = interaction.components[0]?.components.find(c => c.customId === 'completed_tasks');
+                completedTaskIds = component?.values || [];
+            }
+
+            if (completedTaskIds.length === 0) {
+                await interaction.reply({ content: 'No tasks were selected.', ephemeral: true });
+                return;
+            }
+
+            const remainingTasks = updateTasks(categoryId, completedTaskIds);
+
+            // Send update to the channel
+            const updateChannelId = TODO_UPDATE_CHANNELS[categoryId];
+            if (updateChannelId) {
+                try {
+                    const channel = await interaction.client.channels.fetch(updateChannelId);
+                    if (channel) {
+                        const wikiConfig = WIKIS[CATEGORY_WIKI_MAP[categoryId]];
+                        const container = buildTodoListContainer(categoryId, wikiConfig);
+
+                        let messageContent = `Todo list updated! Remaining tasks:`;
+                        if (!container) {
+                            messageContent = `Todo list updated! All tasks completed! 🎉`;
+                        }
+
+                        await channel.send({
+                            content: messageContent,
+                            components: container ? [container] : [],
+                            flags: container ? MessageFlags.IsComponentsV2 : undefined
+                        });
+                    }
+                } catch (err) {
+                    console.error("Failed to send todo update:", err);
+                }
+            }
+
+            await interaction.reply({ content: `Updated todo list! Completed ${completedTaskIds.length} tasks.`, ephemeral: true });
+        }
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === 'todo') {
+        const subcommand = interaction.options.getSubcommand();
+
+        if (subcommand === 'add') {
+            const name = interaction.options.getString('name');
+            const description = interaction.options.getString('description');
+            const categoryId = interaction.channel.parentId;
+
+            if (!CATEGORY_WIKI_MAP[categoryId]) {
+                await interaction.reply({ content: 'This channel is not in a recognized wiki category.', ephemeral: true });
+                return;
+            }
+
+            const task = addTodoTask(categoryId, name, description);
+            await interaction.reply({ content: `Added task: **${task.name}**`, ephemeral: true });
+
+            // Send update to the channel
+            const updateChannelId = TODO_UPDATE_CHANNELS[categoryId];
+            if (updateChannelId) {
+                try {
+                    const channel = await interaction.client.channels.fetch(updateChannelId);
+                    if (channel) {
+                        const wikiConfig = WIKIS[CATEGORY_WIKI_MAP[categoryId]];
+                        const container = buildTodoListContainer(categoryId, wikiConfig);
+                        await channel.send({
+                            content: `New task added! Current todo list:`,
+                            components: container ? [container] : [],
+                            flags: MessageFlags.IsComponentsV2
+                        });
+                    }
+                } catch (err) {
+                    console.error("Failed to send todo update:", err);
+                }
+            }
+        } else if (subcommand === 'list') {
+            const categoryId = interaction.options.getString('category');
+            const wikiConfig = WIKIS[CATEGORY_WIKI_MAP[categoryId]];
+            const container = buildTodoListContainer(categoryId, wikiConfig);
+
+            if (!container) {
+                await interaction.reply({ content: 'No tasks found for this category.', ephemeral: true });
+            } else {
+                await interaction.reply({
+                    components: [container],
+                    flags: MessageFlags.IsComponentsV2
+                });
+            }
+        } else if (subcommand === 'tick') {
+            const categoryId = interaction.options.getString('category');
+            const modal = buildTickModal(categoryId);
+
+            if (!modal) {
+                await interaction.reply({ content: 'No tasks to tick off for this category.', ephemeral: true });
+            } else {
+                await interaction.showModal(modal);
+            }
+        }
+    }
 
     if (interaction.commandName === 'contribscores') {
         const wikiKey = interaction.options.getString('wiki');

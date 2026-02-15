@@ -34,6 +34,12 @@ const CATEGORY_WIKI_MAP = {
     "1454904248943771748": "a-blocks-journey"
 };
 
+const TODO_UPDATE_CHANNELS = {
+    "1286781988669231166": "1286782522771902505", // SB64 updates
+    "1389381096436793484": "1389381283624259654", // SR updates
+    "1454904248943771748": "1454904573130084393"  // ABJ updates
+};
+
 // --- DISCORD STATUSES ---
 const STATUS_OPTIONS = [
     { type: 4, text: "just send [[a page]] or {{a page}}!" },
@@ -47,5 +53,6 @@ module.exports = {
     BOT_NAME,
     WIKIS,
     CATEGORY_WIKI_MAP,
+    TODO_UPDATE_CHANNELS,
     STATUS_OPTIONS
 };
