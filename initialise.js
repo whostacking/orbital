@@ -37,6 +37,52 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
+// -------------------- UTILITIES --------------------
+const DISCORD_MAX_LENGTH = 2000;
+
+const PREFIX_WIKI_MAP = {
+    "sb64": "super-blox-64",
+    "sr": "superstar-racers",
+    "abj": "a-blocks-journey"
+};
+
+const syntaxRegex = /\{\{(?:(sr|sb64|abj):)?([^{}|]+)(?:\|[^{}]*)?\}\}|\[\[(?:(sr|sb64|abj):)?([^[\]|]+)(?:\|[^[\]]*)?\]\]/;
+
+const responseMap = new Map();
+
+function splitMessage(text, maxLength = DISCORD_MAX_LENGTH) {
+    const messages = [];
+    let currentText = text;
+
+    while (currentText.length > 0) {
+        if (currentText.length <= maxLength) {
+            messages.push(currentText);
+            break;
+        }
+
+        const searchLength = maxLength - 10;
+        let splitIndex = currentText.lastIndexOf('\n', searchLength);
+        if (splitIndex === -1) splitIndex = currentText.lastIndexOf(' ', searchLength);
+        if (splitIndex === -1) splitIndex = searchLength;
+
+        let segment = currentText.slice(0, splitIndex).trim();
+        let remaining = currentText.slice(splitIndex).trim();
+
+        const backtickMatches = segment.match(/```/g);
+        const isInsideCodeBlock = backtickMatches && (backtickMatches.length % 2 !== 0);
+
+        if (isInsideCodeBlock) {
+            segment += "\n```";
+            remaining = "```\n" + remaining;
+        }
+
+        messages.push(segment);
+        currentText = remaining;
+    }
+
+    return messages;
+}
+
 // --- NEW: UNIFIED COMPONENT BUILDER ---
 function buildPageEmbed(title, content, imageUrl, wikiConfig, gallery = null) {
     const container = new ContainerBuilder();
@@ -154,10 +200,12 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.DirectMessageReactions,
         GatewayIntentBits.MessageContent,
     ],
-    partials: [Partials.Channel],
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
 
 client.once("ready", async () => {
@@ -185,17 +233,25 @@ client.once("ready", async () => {
                 ]
             }
         ]);
-        console.log("Registered slash commands.");
+        console.log("✅ Registered slash commands.");
     } catch (err) {
         console.error("Failed to register commands:", err);
     }
 });
 
 // -------------------- HANDLER --------------------
-async function handleUserRequest(wikiConfig, rawUserMsg, messageOrInteraction) {
-    const isInteraction = interaction => interaction.editReply || interaction.followUp;
+async function handleUserRequest(wikiConfig, rawPageName, messageOrInteraction, botMessageToEdit = null) {
+    const isInteraction = (interaction) => interaction && (interaction.editReply || interaction.followUp);
 
     const smartReply = async (payload) => {
+        if (botMessageToEdit) {
+            try {
+                return await botMessageToEdit.edit(payload);
+            } catch (err) {
+                console.warn("Failed to edit message, sending new one instead:", err.message);
+                // Fallback to sending new if edit fails (e.g. message deleted)
+            }
+        }
         if (isInteraction(messageOrInteraction)) {
             if (messageOrInteraction.deferred || messageOrInteraction.replied) {
                 return messageOrInteraction.followUp(payload);
@@ -210,18 +266,12 @@ async function handleUserRequest(wikiConfig, rawUserMsg, messageOrInteraction) {
     
     const contextMessage = messageOrInteraction;
     let typingInterval;
-    if (contextMessage.channel?.sendTyping) {
+    if (!botMessageToEdit && contextMessage.channel?.sendTyping) {
         messageOrInteraction.channel.sendTyping().catch(() => {});
         typingInterval = setInterval(() => messageOrInteraction.channel.sendTyping().catch(() => {}), 8000);
     }
 
     try {
-        const syntaxRegex = /\{\{([^{}|]+)(?:\|[^{}]*)?\}\}|\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]|;;([^{}|]+);;|&&([^{}|]+)&&|!!([^{}|]+)!!/;
-        const match = rawUserMsg.match(syntaxRegex);
-
-        if (!match) return;
-
-        let rawPageName = (match[1] || match[2] || match[3] || match[4] || match[5]).trim();
         let sectionName = null;
 
         if (rawPageName.includes("#")) {
@@ -272,13 +322,14 @@ async function handleUserRequest(wikiConfig, rawUserMsg, messageOrInteraction) {
 
             const container = buildPageEmbed(displayTitle, content.slice(0, 1000), imageUrl, wikiConfig, gallery);
             
-            await smartReply({
+            return await smartReply({
+                content: "",
                 components: [container],
                 flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { repliedUser: false },
             });
         } else {
-            await smartReply({ content: `Page "${rawPageName}" not found on ${wikiConfig.name}.`, ephemeral: true, allowedMentions: { parse: [] }});
+            return await smartReply({ content: `Page "${rawPageName}" not found on ${wikiConfig.name}.`, components: [], ephemeral: true, allowedMentions: { parse: [] }});
         }
 
     } catch (err) {
@@ -289,38 +340,105 @@ async function handleUserRequest(wikiConfig, rawUserMsg, messageOrInteraction) {
 }
 
 // -------------------- EVENTS --------------------
+function getWikiAndPage(messageContent, channelParentId) {
+    const match = messageContent.match(syntaxRegex);
+    if (!match) return null;
+
+    const prefix = match[1] || match[3];
+    const rawPageName = (match[2] || match[4]).trim();
+
+    let wikiConfig = null;
+    if (prefix) {
+        wikiConfig = WIKIS[PREFIX_WIKI_MAP[prefix]];
+    } else {
+        const wikiKey = CATEGORY_WIKI_MAP[channelParentId] || "superstar-racers";
+        wikiConfig = WIKIS[wikiKey];
+    }
+
+    return { wikiConfig, rawPageName };
+}
+
 client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
 
-    const rawUserMsg = message.content.trim();
-    if (!rawUserMsg) return;
+    const res = getWikiAndPage(message.content, message.channel.parentId);
+    if (!res) return;
 
-    // Determine which wiki to use
-    let wikiConfig = null;
+    const { wikiConfig, rawPageName } = res;
+    if (wikiConfig) {
+        const response = await handleUserRequest(wikiConfig, rawPageName, message);
+        if (response && response.id) {
+            responseMap.set(message.id, response.id);
+            // Limit map size to 1000 entries
+            if (responseMap.size > 1000) {
+                const firstKey = responseMap.keys().next().value;
+                responseMap.delete(firstKey);
+            }
+        }
+    }
+});
 
-    const syntaxRegex = /\{\{([^{}|]+)(?:\|[^{}]*)?\}\}|\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]|;;([^{}|]+);;|&&([^{}|]+)&&|!!([^{}|]+)!!/;
-    const match = rawUserMsg.match(syntaxRegex);
+client.on("messageUpdate", async (oldMessage, newMessage) => {
+    if (newMessage.author.bot) return;
+    if (!responseMap.has(newMessage.id)) return;
 
-    if (!match) return;
+    const res = getWikiAndPage(newMessage.content, newMessage.channel.parentId);
+    if (!res) return;
 
-    // Check for special syntaxes first based on which group matched
-    if (match[3]) wikiConfig = WIKIS["super-blox-64"];
-    else if (match[4]) wikiConfig = WIKIS["superstar-racers"];
-    else if (match[5]) wikiConfig = WIKIS["a-blocks-journey"];
-    else if (match[1] || match[2]) {
-        // {{}} or [[]] - Use category mapping
-        const categoryId = message.channel.parentId;
-        const wikiKey = CATEGORY_WIKI_MAP[categoryId];
-        if (wikiKey) {
-            wikiConfig = WIKIS[wikiKey];
-        } else {
-            // Fallback to Superstar Racers if not in a listed category
-            wikiConfig = WIKIS["superstar-racers"];
+    const { wikiConfig, rawPageName } = res;
+    const botMessageId = responseMap.get(newMessage.id);
+
+    try {
+        const botMessage = await newMessage.channel.messages.fetch(botMessageId);
+        if (botMessage) {
+            await handleUserRequest(wikiConfig, rawPageName, newMessage, botMessage);
+        }
+    } catch (err) {
+        console.warn("Failed to fetch bot message for update:", err.message);
+    }
+});
+
+client.on("messageReactionAdd", async (reaction, user) => {
+    if (user.bot) return;
+    if (reaction.partial) {
+        try {
+            await reaction.fetch();
+        } catch (error) {
+            console.error('Something went wrong when fetching the reaction:', error);
+            return;
         }
     }
 
-    if (wikiConfig) {
-        await handleUserRequest(wikiConfig, rawUserMsg, message);
+    const emoji = reaction.emoji.name;
+    if (emoji === "🗑️" || emoji === "wastebucket") {
+        const message = reaction.message;
+        if (message.author.id !== client.user.id) return;
+
+        let originalAuthorId = null;
+        for (const [userMsgId, botMsgId] of responseMap.entries()) {
+            if (botMsgId === message.id) {
+                try {
+                    const userMsg = await message.channel.messages.fetch(userMsgId);
+                    originalAuthorId = userMsg.author.id;
+                } catch (err) {}
+                break;
+            }
+        }
+
+        if (!originalAuthorId && message.reference) {
+            try {
+                const referencedMsg = await message.channel.messages.fetch(message.reference.messageId);
+                originalAuthorId = referencedMsg.author.id;
+            } catch (err) {}
+        }
+
+        if (user.id === originalAuthorId) {
+            try {
+                await message.delete();
+            } catch (err) {
+                console.warn("Failed to delete message on reaction:", err.message);
+            }
+        }
     }
 });
 

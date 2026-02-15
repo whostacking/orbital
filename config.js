@@ -38,9 +38,9 @@ const CATEGORY_WIKI_MAP = {
 const STATUS_OPTIONS = [
     { type: 4, text: "just send [[a page]] or {{a page}}!" },
     { type: 4, text: "now supporting 3 wikis!" },
-    { type: 4, text: "use ;;page;; for Super Blox 64" },
-    { type: 4, text: "use &&page&& for Superstar Racers" },
-    { type: 4, text: "use !!page!! for A Block's Journey" },
+    { type: 4, text: "use [[sb64:Page]] for Super Blox 64" },
+    { type: 4, text: "use [[sr:Page]] for Superstar Racers" },
+    { type: 4, text: "use [[abj:Page]] for A Block's Journey" },
 ];
 
 module.exports = {
