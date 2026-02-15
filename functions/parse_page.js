@@ -51,7 +51,7 @@ function htmlToMarkdown(html, baseUrl) {
                 const prefix = isOrdered
                     ? `${Array.from(node.parent.children).filter(c => c.name === 'li').indexOf(node) + 1}. `
                     : '* ';
-                return `${prefix}${childrenContent.trim()}\n`;
+                return `${prefix}${childrenContent.trim()}`;
             }
             case 'h1':
             case 'h2':
