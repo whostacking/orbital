@@ -21,12 +21,12 @@ async function getContributionScores(wikiConfig) {
         const rows = html.split('<tr class="">');
         rows.shift(); // Remove header
 
-        let dataSummary = `TOP 10 CONTRIBUTORS DATA FOR ${wikiConfig.name}:\n`;
+        let dataSummary = `Edit leaderboard for ${wikiConfig.name}: Wiki\n`;
         rows.forEach((row, i) => {
             const user = row.match(/<bdi>(.*?)<\/bdi>/)?.[1] || "Unknown";
             const stats = [...row.matchAll(/>([\d,]+)\s*<\/td>/g)];
             if (stats.length >= 4) {
-                dataSummary += `${i+1}. ${user}: Score ${stats[1][1]}, Edits ${stats[3][1]}\n`;
+                dataSummary += `${i+1}. **${user}**    <:playerpoint:1472433775593000961> ${stats[1][1]} • ✏️ ${stats[3][1]}\n`;
             }
         });
 
