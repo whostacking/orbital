@@ -11,6 +11,7 @@ const {
 const { getContributionScores } = require("./functions/contribscores.js");
 const {
     addTodoTask,
+    getTodoList,
     buildTodoListContainer,
     updateTasks,
     buildTickModal
