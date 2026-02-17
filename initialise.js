@@ -9,6 +9,7 @@ const {
 } = require("./functions/parse_page.js");
 
 const { getContributionScores } = require("./functions/contribscores.js");
+const { handleFileRequest } = require("./functions/parse_file.js");
 
 const {
     Client,
@@ -21,6 +22,7 @@ const {
     ThumbnailBuilder,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
+    FileBuilder,
     ButtonBuilder,
     ButtonStyle,
     ActionRowBuilder,
@@ -200,6 +202,60 @@ client.once("ready", async () => {
                             name: wiki.name,
                             value: key
                         }))
+                    }
+                ]
+            },
+            {
+                name: 'wiki',
+                description: 'Wiki commands',
+                options: [
+                    {
+                        name: 'page',
+                        description: 'Search for a wiki page',
+                        type: 1, // SUB_COMMAND
+                        options: [
+                            {
+                                name: 'wiki',
+                                description: 'The wiki to search in',
+                                type: 3, // STRING
+                                required: true,
+                                choices: Object.entries(WIKIS).map(([key, wiki]) => ({
+                                    name: wiki.name,
+                                    value: key
+                                }))
+                            },
+                            {
+                                name: 'page',
+                                description: 'The page name',
+                                type: 3, // STRING
+                                required: true,
+                                autocomplete: true
+                            }
+                        ]
+                    },
+                    {
+                        name: 'file',
+                        description: 'Search for a wiki file',
+                        type: 1, // SUB_COMMAND
+                        options: [
+                            {
+                                name: 'wiki',
+                                description: 'The wiki to search in',
+                                type: 3, // STRING
+                                required: true,
+                                choices: Object.entries(WIKIS).map(([key, wiki]) => ({
+                                    name: wiki.name,
+                                    value: key
+                                }))
+                            },
+                            {
+                                name: 'file',
+                                description: 'The file name',
+                                type: 3, // STRING
+                                required: true,
+                                autocomplete: true
+                            }
+                        ]
                     }
                 ]
             }
@@ -414,6 +470,52 @@ client.on("messageReactionAdd", async (reaction, user) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+    // --- Autocomplete ---
+    if (interaction.type === InteractionType.ApplicationCommandAutocomplete) {
+        if (interaction.commandName === 'wiki') {
+            const focusedOption = interaction.options.getFocused(true);
+            const wikiKey = interaction.options.getString('wiki');
+            const wikiConfig = WIKIS[wikiKey];
+
+            if (!wikiConfig || !focusedOption.value) {
+                return interaction.respond([]).catch(() => {});
+            }
+
+            try {
+                if (focusedOption.name === 'page') {
+                    const params = new URLSearchParams({
+                        action: 'query',
+                        list: 'allpages',
+                        apprefix: focusedOption.value,
+                        aplimit: '25',
+                        format: 'json'
+                    });
+                    const res = await fetch(`${wikiConfig.apiEndpoint}?${params.toString()}`);
+                    const json = await res.json();
+                    const pages = json.query?.allpages || [];
+                    return interaction.respond(pages.map(p => ({ name: p.title, value: p.title }))).catch(() => {});
+                } else if (focusedOption.name === 'file') {
+                    const params = new URLSearchParams({
+                        action: 'query',
+                        list: 'allimages',
+                        aiprefix: focusedOption.value,
+                        ailimit: '25',
+                        format: 'json'
+                    });
+                    const res = await fetch(`${wikiConfig.apiEndpoint}?${params.toString()}`);
+                    const json = await res.json();
+                    const images = json.query?.allimages || [];
+                    return interaction.respond(images.map(i => ({ name: i.title, value: i.title }))).catch(() => {});
+                }
+            } catch (err) {
+                console.error("Autocomplete error:", err);
+                return interaction.respond([]).catch(() => {});
+            }
+        }
+        return;
+    }
+
+    // --- Command Execution ---
     if (interaction.commandName === 'contribscores') {
         if (!toggleContribScore) {
             await interaction.reply({ content: 'Contribution scores are currently disabled.', ephemeral: true });
@@ -438,6 +540,23 @@ client.on("interactionCreate", async (interaction) => {
                 components: [container],
                 flags: MessageFlags.IsComponentsV2
             });
+        }
+    } else if (interaction.commandName === 'wiki') {
+        const subcommand = interaction.options.getSubcommand();
+        const wikiKey = interaction.options.getString('wiki');
+        const wikiConfig = WIKIS[wikiKey];
+
+        if (!wikiConfig) {
+            await interaction.reply({ content: 'Unknown wiki selection.', ephemeral: true });
+            return;
+        }
+
+        if (subcommand === 'page') {
+            const pageName = interaction.options.getString('page');
+            await handleUserRequest(wikiConfig, pageName, interaction);
+        } else if (subcommand === 'file') {
+            const fileName = interaction.options.getString('file');
+            await handleFileRequest(wikiConfig, fileName, interaction);
         }
     }
 });
