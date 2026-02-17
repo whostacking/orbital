@@ -22,7 +22,6 @@ const {
     ThumbnailBuilder,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
-    FileBuilder,
     ButtonBuilder,
     ButtonStyle,
     ActionRowBuilder,
@@ -317,6 +316,9 @@ async function handleUserRequest(wikiConfig, rawPageName, messageOrInteraction, 
                 return messageOrInteraction.followUp(payload);
             }
             if (messageOrInteraction.deferred) {
+                if (payload.ephemeral) {
+                    return messageOrInteraction.followUp(payload);
+                }
                 return messageOrInteraction.editReply(payload);
             }
             return messageOrInteraction.reply(payload);
@@ -513,7 +515,7 @@ client.on("interactionCreate", async (interaction) => {
             const wikiKey = interaction.options.getString('wiki');
             const wikiConfig = WIKIS[wikiKey];
 
-            if (!wikiConfig || !focusedOption.value) {
+            if (!wikiConfig) {
                 return interaction.respond([]).catch(() => {});
             }
 
@@ -558,18 +560,30 @@ client.on("interactionCreate", async (interaction) => {
         const wikiConfig = WIKIS[wikiKey];
 
         if (!wikiConfig) {
-            await interaction.reply({ content: 'Unknown wiki selection.', ephemeral: true });
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: 'Unknown wiki selection.', ephemeral: true }).catch(() => {});
+            }
             return;
         }
 
-        if (subcommand === 'page') {
-            const pageName = interaction.options.getString('page');
-            await interaction.deferReply();
-            await handleUserRequest(wikiConfig, pageName, interaction);
-        } else if (subcommand === 'file') {
-            const fileName = interaction.options.getString('file');
-            await interaction.deferReply();
-            await handleFileRequest(wikiConfig, fileName, interaction);
+        try {
+            if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
+
+            if (subcommand === 'page') {
+                const pageName = interaction.options.getString('page');
+                await handleUserRequest(wikiConfig, pageName, interaction);
+            } else if (subcommand === 'file') {
+                const fileName = interaction.options.getString('file');
+                await handleFileRequest(wikiConfig, fileName, interaction);
+            }
+        } catch (err) {
+            console.error(`Error executing wiki ${subcommand} command:`, err);
+            const errorMsg = { content: "An error occurred while executing the command.", ephemeral: true };
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp(errorMsg).catch(() => {});
+            } else {
+                await interaction.reply(errorMsg).catch(() => {});
+            }
         }
     }
 });
