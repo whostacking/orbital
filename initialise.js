@@ -70,8 +70,10 @@ const wikiChoices = Object.entries(WIKIS).map(([key, wiki]) => ({
 
 async function fetchWikiChoices(wikiConfig, params, listKey, isFileSearch) {
     try {
+        // Use a 3-second timeout to prevent autocomplete from hanging on slow wiki APIs
         const res = await fetch(`${wikiConfig.apiEndpoint}?${params.toString()}`, {
-            headers: { "User-Agent": "DiscordBot/Orbital" }
+            headers: { "User-Agent": "DiscordBot/Orbital" },
+            signal: AbortSignal.timeout(3000)
         });
         if (!res.ok) return [];
 
@@ -129,11 +131,12 @@ async function getAutocompleteChoices(wikiConfig, listType, prefix) {
     });
 
     // 2. Similar search using list=search (with intitle: for miser mode)
+    // We wrap searchPrefix in quotes to treat it as a literal phrase and avoid query manipulation.
     const srParams = new URLSearchParams({
         action: 'query',
         format: 'json',
         list: 'search',
-        srsearch: `intitle:${searchPrefix}`,
+        srsearch: `intitle:"${searchPrefix.replace(/"/g, '')}"`,
         srnamespace: namespace,
         srlimit: '25'
     });
@@ -148,8 +151,9 @@ async function getAutocompleteChoices(wikiConfig, listType, prefix) {
 
     // Prioritize prefix search results
     for (const choice of [...psResults, ...srResults]) {
-        if (!seen.has(choice.value)) {
-            seen.add(choice.value);
+        const key = choice.value.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
             finalChoices.push(choice);
             if (finalChoices.length >= 25) break;
         }
