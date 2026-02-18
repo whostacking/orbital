@@ -56,6 +56,13 @@ const syntaxRegex = new RegExp(
 const responseMap = new Map();
 const botToAuthorMap = new Map();
 
+function pruneMap(map, maxSize = 1000) {
+    if (map.size > maxSize) {
+        const firstKey = map.keys().next().value;
+        map.delete(firstKey);
+    }
+}
+
 const wikiChoices = Object.entries(WIKIS).map(([key, wiki]) => ({
     name: wiki.name,
     value: key
@@ -465,15 +472,8 @@ client.on("messageCreate", async (message) => {
         if (response && response.id) {
             responseMap.set(message.id, response.id);
             botToAuthorMap.set(response.id, message.author.id);
-            // Limit map sizes to 1000 entries
-            if (responseMap.size > 1000) {
-                const firstKey = responseMap.keys().next().value;
-                responseMap.delete(firstKey);
-            }
-            if (botToAuthorMap.size > 1000) {
-                const firstKey = botToAuthorMap.keys().next().value;
-                botToAuthorMap.delete(firstKey);
-            }
+            pruneMap(responseMap);
+            pruneMap(botToAuthorMap);
         }
     }
 });
@@ -494,10 +494,7 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
             const response = await handleUserRequest(wikiConfig, rawPageName, newMessage, botMessage);
             if (response && response.id) {
                 botToAuthorMap.set(response.id, newMessage.author.id);
-                if (botToAuthorMap.size > 1000) {
-                    const firstKey = botToAuthorMap.keys().next().value;
-                    botToAuthorMap.delete(firstKey);
-                }
+                pruneMap(botToAuthorMap);
             }
         }
     } catch (err) {
@@ -532,7 +529,9 @@ client.on("messageReactionAdd", async (reaction, user) => {
                         originalAuthorId = userMsg.author.id;
                         // Cache it for next time
                         botToAuthorMap.set(botMsgId, originalAuthorId);
-                    } catch (err) {}
+                    } catch (err) {
+                        console.warn(`Failed to fetch original user message ${userMsgId} for bot message ${botMsgId}:`, err);
+                    }
                     break;
                 }
             }
@@ -544,7 +543,9 @@ client.on("messageReactionAdd", async (reaction, user) => {
                 originalAuthorId = referencedMsg.author.id;
                 // Cache it for next time
                 botToAuthorMap.set(message.id, originalAuthorId);
-            } catch (err) {}
+            } catch (err) {
+                console.warn(`Failed to fetch referenced message ${message.reference.messageId} for bot message ${message.id}:`, err);
+            }
         }
 
         if (user.id === originalAuthorId) {
@@ -605,10 +606,7 @@ client.on("interactionCreate", async (interaction) => {
             });
             if (response && response.id) {
                 botToAuthorMap.set(response.id, interaction.user.id);
-                if (botToAuthorMap.size > 1000) {
-                    const firstKey = botToAuthorMap.keys().next().value;
-                    botToAuthorMap.delete(firstKey);
-                }
+                pruneMap(botToAuthorMap);
             }
         }
     } else if (interaction.commandName === 'wiki') {
@@ -638,10 +636,7 @@ client.on("interactionCreate", async (interaction) => {
             }
             if (response && response.id) {
                 botToAuthorMap.set(response.id, interaction.user.id);
-                if (botToAuthorMap.size > 1000) {
-                    const firstKey = botToAuthorMap.keys().next().value;
-                    botToAuthorMap.delete(firstKey);
-                }
+                pruneMap(botToAuthorMap);
             }
         } catch (err) {
             console.error(`Error executing wiki ${subcommand} command:`, err);
