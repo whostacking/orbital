@@ -54,6 +54,7 @@ const syntaxRegex = new RegExp(
 );
 
 const responseMap = new Map();
+const botToAuthorMap = new Map();
 
 const wikiChoices = Object.entries(WIKIS).map(([key, wiki]) => ({
     name: wiki.name,
@@ -61,19 +62,32 @@ const wikiChoices = Object.entries(WIKIS).map(([key, wiki]) => ({
 }));
 
 async function getAutocompleteChoices(wikiConfig, listType, prefix) {
-    // strip "file:" prefix for image searches to ensure API compatibility
+    const isFileSearch = listType === 'allimages';
     let searchPrefix = prefix;
-    if (listType === 'allimages' && prefix.toLowerCase().startsWith('file:')) {
+
+    // For file searches, strip "file:" if the user typed it
+    if (isFileSearch && prefix.toLowerCase().startsWith('file:')) {
         searchPrefix = prefix.slice(5);
     }
 
     const params = new URLSearchParams({
         action: 'query',
-        list: listType,
-        [listType === 'allpages' ? 'apprefix' : 'aiprefix']: searchPrefix,
-        [listType === 'allpages' ? 'aplimit' : 'ailimit']: '25',
         format: 'json'
     });
+
+    if (searchPrefix.trim() === '') {
+        // Fallback to prefix-based list for empty input
+        params.append('list', listType);
+        params.append(isFileSearch ? 'aiprefix' : 'apprefix', '');
+        params.append(isFileSearch ? 'ailimit' : 'aplimit', '25');
+    } else {
+        // Similar search using list=search
+        params.append('list', 'search');
+        params.append('srsearch', searchPrefix);
+        params.append('srnamespace', isFileSearch ? '6' : '0');
+        params.append('srlimit', '25');
+        params.append('srwhat', 'title');
+    }
 
     try {
         const res = await fetch(`${wikiConfig.apiEndpoint}?${params.toString()}`, {
@@ -86,14 +100,24 @@ async function getAutocompleteChoices(wikiConfig, listType, prefix) {
         }
 
         const json = await res.json();
-        const items = json.query?.[listType] || [];
+        const items = json.query?.search || json.query?.[listType] || [];
         const seen = new Set();
         const choices = [];
         for (const item of items) {
-            const title = item.title;
+            let title = item.title;
+            let value = title;
+
+            if (isFileSearch) {
+                // Remove "File:" prefix from both label and value
+                if (title.toLowerCase().startsWith('file:')) {
+                    title = title.slice(5);
+                    value = value.slice(5);
+                }
+            }
+
             if (title.length > 100 || seen.has(title)) continue;
             seen.add(title);
-            choices.push({ name: title, value: title });
+            choices.push({ name: title, value: value });
             if (choices.length >= 25) break;
         }
         return choices;
@@ -440,10 +464,15 @@ client.on("messageCreate", async (message) => {
         const response = await handleUserRequest(wikiConfig, rawPageName, message);
         if (response && response.id) {
             responseMap.set(message.id, response.id);
-            // Limit map size to 1000 entries
+            botToAuthorMap.set(response.id, message.author.id);
+            // Limit map sizes to 1000 entries
             if (responseMap.size > 1000) {
                 const firstKey = responseMap.keys().next().value;
                 responseMap.delete(firstKey);
+            }
+            if (botToAuthorMap.size > 1000) {
+                const firstKey = botToAuthorMap.keys().next().value;
+                botToAuthorMap.delete(firstKey);
             }
         }
     }
@@ -462,7 +491,14 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
     try {
         const botMessage = await newMessage.channel.messages.fetch(botMessageId);
         if (botMessage) {
-            await handleUserRequest(wikiConfig, rawPageName, newMessage, botMessage);
+            const response = await handleUserRequest(wikiConfig, rawPageName, newMessage, botMessage);
+            if (response && response.id) {
+                botToAuthorMap.set(response.id, newMessage.author.id);
+                if (botToAuthorMap.size > 1000) {
+                    const firstKey = botToAuthorMap.keys().next().value;
+                    botToAuthorMap.delete(firstKey);
+                }
+            }
         }
     } catch (err) {
         console.warn("Failed to fetch bot message for update:", err.message);
@@ -485,14 +521,20 @@ client.on("messageReactionAdd", async (reaction, user) => {
         const message = reaction.message;
         if (message.author.id !== client.user.id) return;
 
-        let originalAuthorId = null;
-        for (const [userMsgId, botMsgId] of responseMap.entries()) {
-            if (botMsgId === message.id) {
-                try {
-                    const userMsg = await message.channel.messages.fetch(userMsgId);
-                    originalAuthorId = userMsg.author.id;
-                } catch (err) {}
-                break;
+        let originalAuthorId = botToAuthorMap.get(message.id);
+
+        if (!originalAuthorId) {
+            // fallback to responseMap for older messages or if map missed it
+            for (const [userMsgId, botMsgId] of responseMap.entries()) {
+                if (botMsgId === message.id) {
+                    try {
+                        const userMsg = await message.channel.messages.fetch(userMsgId);
+                        originalAuthorId = userMsg.author.id;
+                        // Cache it for next time
+                        botToAuthorMap.set(botMsgId, originalAuthorId);
+                    } catch (err) {}
+                    break;
+                }
             }
         }
 
@@ -500,6 +542,8 @@ client.on("messageReactionAdd", async (reaction, user) => {
             try {
                 const referencedMsg = await message.channel.messages.fetch(message.reference.messageId);
                 originalAuthorId = referencedMsg.author.id;
+                // Cache it for next time
+                botToAuthorMap.set(message.id, originalAuthorId);
             } catch (err) {}
         }
 
@@ -555,10 +599,17 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.editReply({ content: result.error });
         } else {
             const container = buildPageEmbed(result.title, result.result, null, wikiConfig);
-            await interaction.editReply({
+            const response = await interaction.editReply({
                 components: [container],
                 flags: MessageFlags.IsComponentsV2
             });
+            if (response && response.id) {
+                botToAuthorMap.set(response.id, interaction.user.id);
+                if (botToAuthorMap.size > 1000) {
+                    const firstKey = botToAuthorMap.keys().next().value;
+                    botToAuthorMap.delete(firstKey);
+                }
+            }
         }
     } else if (interaction.commandName === 'wiki') {
         const subcommand = interaction.options.getSubcommand();
@@ -575,14 +626,22 @@ client.on("interactionCreate", async (interaction) => {
         try {
             if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
 
+            let response;
             if (subcommand === 'page') {
                 const pageName = interaction.options.getString('page');
-                await handleUserRequest(wikiConfig, pageName, interaction);
+                response = await handleUserRequest(wikiConfig, pageName, interaction);
             } else if (subcommand === 'file') {
                 const fileName = interaction.options.getString('file');
-                await handleFileRequest(wikiConfig, fileName, interaction);
+                response = await handleFileRequest(wikiConfig, fileName, interaction);
             } else {
                 await interaction.editReply({ content: "Unknown subcommand." }).catch(() => {});
+            }
+            if (response && response.id) {
+                botToAuthorMap.set(response.id, interaction.user.id);
+                if (botToAuthorMap.size > 1000) {
+                    const firstKey = botToAuthorMap.keys().next().value;
+                    botToAuthorMap.delete(firstKey);
+                }
             }
         } catch (err) {
             console.error(`Error executing wiki ${subcommand} command:`, err);
