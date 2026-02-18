@@ -75,7 +75,10 @@ async function fetchWikiChoices(wikiConfig, params, listKey, isFileSearch) {
             headers: { "User-Agent": "DiscordBot/Orbital" },
             signal: AbortSignal.timeout(3000)
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+            console.warn(`Wiki API returned ${res.status} for ${listKey} (${wikiConfig.apiEndpoint})`);
+            return [];
+        }
 
         const json = await res.json();
         const items = json.query?.[listKey] || [];
