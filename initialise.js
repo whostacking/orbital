@@ -57,7 +57,7 @@ const responseMap = new Map();
 const botToAuthorMap = new Map();
 
 function pruneMap(map, maxSize = 1000) {
-    if (map.size > maxSize) {
+    while (map.size > maxSize) {
         const firstKey = map.keys().next().value;
         map.delete(firstKey);
     }
@@ -111,7 +111,7 @@ async function getAutocompleteChoices(wikiConfig, listType, prefix) {
         const seen = new Set();
         const choices = [];
         for (const item of items) {
-            let title = item.title;
+            let title = item.title ?? item.name;
             let value = title;
 
             if (isFileSearch) {
@@ -626,17 +626,24 @@ client.on("interactionCreate", async (interaction) => {
 
             let response;
             if (subcommand === 'page') {
-                const pageName = interaction.options.getString('page');
-                response = await handleUserRequest(wikiConfig, pageName, interaction);
+                response = await handleUserRequest(wikiConfig, interaction.options.getString('page'), interaction);
             } else if (subcommand === 'file') {
-                const fileName = interaction.options.getString('file');
-                response = await handleFileRequest(wikiConfig, fileName, interaction);
-            } else {
-                await interaction.editReply({ content: "Unknown subcommand." }).catch(() => {});
+                // Ensure handleFileRequest is awaited and errors are caught
+                response = await handleFileRequest(wikiConfig, interaction.options.getString('file'), interaction);
             }
+
+            // FIX: Ensure we track the author even if response returned is slightly malformed
+            // or provide a fallback if the request failed to produce a Message object.
             if (response && response.id) {
                 botToAuthorMap.set(response.id, interaction.user.id);
                 pruneMap(botToAuthorMap);
+            } else {
+                console.warn(`[Interaction Error] ${subcommand} request by ${interaction.user.tag} (${interaction.user.id}) did not return a valid Message object for mapping.`);
+                
+                // If it finished but returned nothing (double-failure), send a final fallback if possible
+                if (!interaction.replied && interaction.deferred) {
+                    await interaction.editReply({ content: "The request could not be completed, and no message was returned for tracking." });
+                }
             }
         } catch (err) {
             console.error(`Error executing wiki ${subcommand} command:`, err);
