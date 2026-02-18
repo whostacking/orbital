@@ -576,13 +576,15 @@ client.on("interactionCreate", async (interaction) => {
                 const fileName = interaction.options.getString('file');
                 await handleFileRequest(wikiConfig, fileName, interaction);
             } else {
-                await interaction.editReply({ content: "Unknown subcommand.", ephemeral: true }).catch(() => {});
+                await interaction.editReply({ content: "Unknown subcommand." }).catch(() => {});
             }
         } catch (err) {
             console.error(`Error executing wiki ${subcommand} command:`, err);
             const errorMsg = { content: "An error occurred while executing the command.", ephemeral: true };
-            if (interaction.deferred || interaction.replied) {
+            if (interaction.replied) {
                 await interaction.followUp(errorMsg).catch(() => {});
+            } else if (interaction.deferred) {
+                await interaction.editReply({ content: errorMsg.content }).catch(() => {});
             } else {
                 await interaction.reply(errorMsg).catch(() => {});
             }
