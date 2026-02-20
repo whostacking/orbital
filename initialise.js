@@ -50,7 +50,7 @@ const prefixPattern = Object.values(WIKIS).map(w => w.prefix).join('|');
 
 const syntaxRegex = new RegExp(
     `\\{\\{(?:(${prefixPattern}):)?([^{}|]+)(?:\\|[^{}]*)?\\}\\}|` +
-    `\\[\\[(?:(${prefixPattern}):)?([^[\\s\\]|]+)(?:\\|[^[\\]]*)?\\]\\]`
+    `\\[\\[(?:(${prefixPattern}):)?([^\\]|]+)(?:\\|[^[\\]]*)?\\]\\]`
 );
 
 const responseMap = new Map();
