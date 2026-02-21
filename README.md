@@ -1,9 +1,5 @@
 <div align="center">
 	<h1>CONECORP's Wiki Guy</h1>
-<p>
-  
-[![](https://img.shields.io/github/contributors/conecorp/wikiguy?style=flat-square&logo=github)](https://github.com/conecorp/wikiguy/graphs/contributors)
-</p>
 </div>
 
 ![](https://static.wikitide.net/stackdwiki/2/26/834_1x_shots_so.png)
@@ -19,5 +15,6 @@
 </p>
 <br>
 <p align="center">
-  <a href="https://discord.com/oauth2/authorize?client_id=1472272697798037524">Add to server</a> ദ്ദി◝ ⩊ ◜.ᐟ
+  <a href="https://discord.com/oauth2/authorize?client_id=1472272697798037524">Add to server</a>
+<br>ദ്ദി◝ ⩊ ◜.ᐟ
 </p>
